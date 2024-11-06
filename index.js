@@ -1,10 +1,9 @@
 require("dotenv").config();
 const express = require("express");
-const SSLCommerzPayment = require("sslcommerz-lts");
 const app = express();
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const port = process.env.PORT || 5000;
+const port = process.env.PORT || 5001;
 
 // middleware
 app.use(cors());
@@ -45,11 +44,6 @@ const client = new MongoClient(uri, {
   },
 });
 
-// SSLComarz Payment Gateway
-const store_id = process.env.STORE_ID;
-const store_passwd = process.env.STORE_PASSWD;
-const is_live = false; //true for live, false for sandbox
-
 let menuCollection, reviewsCollection, cartCollection;
 
 async function run() {
@@ -81,98 +75,9 @@ run().catch(console.dir);
 
 // payment gateway
 app.post("/orders", async (req, res) => {
-  const product = await cartCollection.findOne({
-    _id: new ObjectId(req.body.productId),
-  });
-  console.log(product, "Product");
-
-  const { cart, total, currency } = req.body;
-  const productNames = cart.map((item) => item.name).join(", ");
-
-  function generateTransactionId() {
-    const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let transactionId = "";
-    for (let i = 0; i < 6; i++) {
-      const randomIndex = Math.floor(Math.random() * characters.length);
-      transactionId += characters[randomIndex];
-    }
-    return transactionId;
-  }
-
-  const trans_id = generateTransactionId();
-
-  const data = {
-    total_amount: total,
-    currency: currency,
-    tran_id: trans_id,
-    success_url: `http://localhost:5000/payment/success/${trans_id}`, // Corrected "sucess" to "success"
-    fail_url: `http://localhost:5000/fail/${trans_id}`,
-    cancel_url: "http://localhost:3030/cancel",
-    ipn_url: "http://localhost:3030/ipn",
-    shipping_method: "Courier",
-    product_name: productNames,
-    product_category: "Electronic",
-    product_profile: "general",
-    cus_name: "Customer Name",
-    cus_email: "Email",
-    cus_add1: "address",
-    cus_add2: "Dhaka",
-    cus_city: "Dhaka",
-    cus_state: "Dhaka",
-    cus_postcode: "1000",
-    cus_country: "Bangladesh",
-    cus_phone: "01711111111",
-    cus_fax: "01711111111",
-    ship_name: "Customer Name",
-    ship_add1: "Dhaka",
-    ship_add2: "Dhaka",
-    ship_city: "Dhaka",
-    ship_state: "Dhaka",
-    ship_postcode: 1000,
-    ship_country: "Bangladesh",
-  };
-
-  const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live);
-  sslcz.init(data).then(async (apiResponse) => {
-    let GatewayPageURL = apiResponse.GatewayPageURL;
-    // Respond with the GatewayPageURL to the frontend
-    res.json({ GatewayPageURL });
-    console.log("Redirecting to: ", GatewayPageURL);
-
-    const finalOrder = {
-      cart,
-      total,
-      currency,
-      paidStatus: false, // Payment has not been made yet
-      transactionId: trans_id,
-    };
-    const result = await orderCollection.insertOne(finalOrder);
-    // console.log(result, "resulut");
-  });
-  app.post("/payment/success/:tranId", async (req, res) => {
-    console.log(req.params.tranId);
-    const transactionId = req.params.tranId;
-    const result = await orderCollection.updateOne(
-      { transactionId: req.params.tranId },
-      { $set: { paidStatus: true } } // Update paid status to true
-    );
-    if (result.modifiedCount > 0) {
-      res.redirect(`http://localhost:5173/payment/success/${transactionId}`);
-    } else {
-      res.status(400).json({ error: "Payment confirmation failed" });
-    }
-  });
-
-  // payment failed
-
-  app.post("/payment/fail/:tranId", async (req, res) => {
-    const result = await orderCollection.deleteOne({
-      transactionId: req.params.tranId,
-    });
-    if (result.deleteCount > 0) {
-      res.redirect(`http://localhost:5173/payment/fail/${req.params.tranId}`);
-    }
-  });
+  const order = req.body;
+  const result = await orderCollection.insertOne(order);
+  res.send(result);
 });
 
 app.post("/jwt", (req, res) => {
@@ -243,12 +148,12 @@ app.patch("/users/admin/:id", async (req, res) => {
   res.send(result);
 });
 
-// app.delete("/users/:id", async (req, res) => {
-//   const id = req.params.id;
-//   const query = { _id: new ObjectId(id) };
-//   const result = await usersCollection.deleteOne(query);
-//   console.log(result);
-// });
+app.delete("/users/:id", async (req, res) => {
+  const id = req.params.id;
+  const query = { _id: new ObjectId(id) };
+  const result = await usersCollection.deleteOne(query);
+  console.log(result);
+});
 
 // menu related apis
 app.get("/menu", async (req, res) => {
